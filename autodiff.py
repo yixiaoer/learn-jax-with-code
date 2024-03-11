@@ -1,18 +1,21 @@
-import jax; jax.config.update('jax_default_matmul_precision', jax.lax.Precision.HIGHEST)
-jax.config.update("jax_enable_x64", True)
+from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, Union
 
+import jax
 import jax.numpy as jnp
 import numpy as np
+
+jax.config.update('jax_default_matmul_precision', jax.lax.Precision.HIGHEST)
+jax.config.update("jax_enable_x64", True)
 
 from tracer import Context, IDGenerator, Tracer
 
 class GradArray(Tracer):
-    def __init__(self, arr: np.ndarray, ctx: Context, id_: str | None = None, records: list[tuple] | None = None):
+    def __init__(self, arr: np.ndarray, ctx: Context, id_: str | None = None, records: list[tuple] | None = None) -> None:
         super().__init__(arr, ctx, id_, records)
 
-    def __add__(self, other: Any):
+    def __add__(self, other: Any) -> GradArray:
         arr, ctx, records, id_ = self.arr, self.ctx, self.records, self.id
         is_float = isinstance(other, float)
         is_GradArray = isinstance(other, GradArray)
@@ -21,7 +24,7 @@ class GradArray(Tracer):
             other_ = other if is_float else other.id
             add_res = arr + other if is_float else arr + other.arr
 
-            def grad_operator(grad: np.ndarray):
+            def grad_operator(grad: np.ndarray)  -> Union[tuple[np.ndarray], tuple[np.ndarray, np.ndarray]]:
                 if is_GradArray:
                     return grad, grad
                 return (grad,)
@@ -31,13 +34,13 @@ class GradArray(Tracer):
             return GradArray(add_res, ctx, id_=id_new, records=records)
         raise NotImplementedError('Not supported.')
 
-    def __matmul__(self, other: Any):
+    def __matmul__(self, other: Any) -> GradArray:
         arr, ctx, records, id_ = self.arr, self.ctx, self.records, self.id
         id_new = ctx.id_gen()
         other_ = other.id
         mat_res = arr @ other.arr
 
-        def grad_operator(grad: np.ndarray):
+        def grad_operator(grad: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
             g_self = grad @ other.arr.T
             g_other = self.arr.T @ grad
             return g_self, g_other
@@ -46,11 +49,11 @@ class GradArray(Tracer):
             records.append(('__matmul__', id_, (other_,), {}, id_new, grad_operator))
         return GradArray(mat_res, ctx, id_=id_new, records=records)
 
-    def sum(self, *args, **kwargs):
+    def sum(self, *args, **kwargs) -> GradArray:
         arr, ctx, records, id_ = self.arr, self.ctx, self.records, self.id
         id_new = ctx.id_gen()
 
-        def grad_operator(grad: np.ndarray):
+        def grad_operator(grad: np.ndarray) -> tuple[np.ndarray]:
             g_self = np.ones(arr.shape) * grad
             return (g_self,)
 
@@ -58,11 +61,11 @@ class GradArray(Tracer):
             records.append(('sum', id_, args, kwargs, id_new, grad_operator))
         return GradArray(np.array(arr.sum()), ctx, id_=id_new, records=records)
 
-    def exp(self, *args, **kwargs):
+    def exp(self, *args, **kwargs) -> GradArray:
         arr, ctx, records, id_ = self.arr, self.ctx, self.records, self.id
         id_new = ctx.id_gen()
 
-        def grad_operator(grad: np.ndarray):
+        def grad_operator(grad: np.ndarray) -> tuple[np.ndarray]:
             g_self = np.exp(arr) * grad
             return (g_self,)
 
@@ -70,11 +73,11 @@ class GradArray(Tracer):
             records.append(('exp', id_, args, kwargs, id_new, grad_operator))
         return GradArray(np.exp(arr), ctx, id_=id_new, records=records)
 
-    def sin(self, *args, **kwargs):
+    def sin(self, *args, **kwargs) -> GradArray:
         arr, ctx, records, id_ = self.arr, self.ctx, self.records, self.id
         id_new = ctx.id_gen()
 
-        def grad_operator(grad: np.ndarray):
+        def grad_operator(grad: np.ndarray) -> tuple[np.ndarray]:
             g_self = np.cos(arr) * grad
             return (g_self,)
 
@@ -82,8 +85,8 @@ class GradArray(Tracer):
             records.append(('sin', id_, args, kwargs, id_new, grad_operator))
         return GradArray(np.sin(arr), ctx, id_=id_new, records=records)
 
-def grad_and_value(f: Callable):
-    def h(*args, **kwargs):
+def grad_and_value(f: Callable) -> Callable:
+    def h(*args, **kwargs) -> tuple[np.ndarray, np.ndarray]:
         id_gen = IDGenerator()
         variables = {}
         ctx = Context(id_gen, variables)
@@ -105,18 +108,22 @@ def grad_and_value(f: Callable):
                 else:
                     grads[str(input_)] += grad_op_input
 
-        return out.arr, [grads[arg] for arg in inputs_vid][0]
+        inputs_grad = [(vid_, grads[vid_]) for vid_ in inputs_vid]
+        # Uncomment to print partial derivatives of all input matrices with respect to the output scalar
+        # for vid_, grad_ in inputs_grad:
+            # print(f'the partial derivative of input {vid_}:\n', grad_)
+        return out.arr, inputs_grad[0][1]
     return h
 
-def grad(f: Callable):
-    def h(*args, **kwargs):
+def grad(f: Callable) -> Callable:
+    def h(*args, **kwargs) -> tuple[np.ndarray]:
         _, grad = grad_and_value(f)(*args, **kwargs)
         return grad
     return h
 
 def main():
     # test calculation function
-    def f(a,b,c):
+    def f(a, b, c):
         if isinstance(a, np.ndarray):
             return (a @ np.sin(b) + np.exp(b @ c)).sum() + 5.
         return (a @ GradArray.sin(b) + GradArray.exp(b @ c)).sum() + 5.

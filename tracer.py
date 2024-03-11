@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any, Callable, NamedTuple
 
 import numpy as np
@@ -7,7 +9,7 @@ class Context(NamedTuple):
     variables: dict
 
 class Tracer:
-    def __init__(self, arr: np.ndarray, ctx: Context, id_: str | None = None, records: list[tuple] | None = None):
+    def __init__(self, arr: np.ndarray, ctx: Context, id_: str | None = None, records: list[tuple] | None = None) -> None:
         self.arr = arr
         self.ctx = ctx
         if id_ is None:
@@ -16,7 +18,7 @@ class Tracer:
         self.id = id_
         self.records = records
 
-    def __add__(self, other: Any):
+    def __add__(self, other: Any) -> Tracer:
         arr, ctx, records, id_ = self.arr, self.ctx, self.records, self.id
         is_float = isinstance(other, float)
         is_Tracer = isinstance(other, Tracer)
@@ -29,7 +31,7 @@ class Tracer:
             return Tracer(add_res, ctx, id_=id_new, records=records)
         raise NotImplementedError('Not supported.')
     
-    def __matmul__(self, other: Any):
+    def __matmul__(self, other: Any) -> Tracer:
         arr, ctx, records, id_ = self.arr, self.ctx, self.records, self.id
         is_ndarray = isinstance(other, np.ndarray)
         is_Tracer = isinstance(other, Tracer)
@@ -42,49 +44,49 @@ class Tracer:
             return Tracer(mat_res, ctx, id_=id_new, records=records)
         raise NotImplementedError('Not supported.')
 
-    def reshape(self, *args, **kwargs):
+    def reshape(self, *args, **kwargs) -> Tracer:
         arr, ctx, records, id_ = self.arr, self.ctx, self.records, self.id
         id_new = ctx.id_gen()
         if records is not None:
             records.append(('reshape', id_, args, kwargs, id_new))
         return Tracer(arr.reshape(*args, **kwargs), ctx, id_=id_new, records=records)
 
-    def sum(self, *args, **kwargs):
+    def sum(self, *args, **kwargs) -> Tracer:
         arr, ctx, records, id_ = self.arr, self.ctx, self.records, self.id
         id_new = ctx.id_gen()
         if records is not None:
             records.append(('sum', id_, args, kwargs, id_new))
         return Tracer(np.array(arr.sum()), ctx, id_=id_new, records=records)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         arr, id_ = self.arr, self.id
         return f'Tracer object {repr(id_)}:\n{repr(arr)}'
 
 class Variable:
-    def __init__(self, id_: int):
+    def __init__(self, id_: int) -> None:
         self.id = id_
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'v{self.id}'
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self.id)
 
-    def __eq__(self, other: Any):
+    def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Variable):
             return False
         return self.id == other.id
 
 class IDGenerator:
-    def __init__(self):
+    def __init__(self) -> None:
         self.count = 0
 
-    def __call__(self):
+    def __call__(self) -> Variable:
         out = Variable(self.count)
         self.count += 1
         return out
 
-def make_tracer_if_is_np_arr(x, ctx, /, records=None, i=None, static_argnums=(), k=None, static_argnames=()):
+def make_tracer_if_is_np_arr(x, ctx, /, records: list[tuple] | None = None, i: int | None = None, static_argnums=(), k=None, static_argnames=()) -> Any:
     if not isinstance(x, np.ndarray):
         return x
     if i is not None and i in static_argnums:
@@ -93,7 +95,7 @@ def make_tracer_if_is_np_arr(x, ctx, /, records=None, i=None, static_argnums=(),
         return x
     return Tracer(x, ctx, records=records)
 
-def recover_arg(arg: Any, variables: dict[Variable, Any]):
+def recover_arg(arg: Any, variables: dict[Variable, Any]) -> Any:
     if not isinstance(arg, Variable):
         return arg
     return variables[arg]
@@ -105,13 +107,13 @@ def recover_kwargs(kwargs: dict[str, Any], variables: dict[Variable, Any]) -> di
     return {k: recover_arg(v, variables) for k, v in kwargs.items()}
 
 class trace:
-    def __init__(self, f: Callable, static_argnums=(), static_argnames=()):
+    def __init__(self, f: Callable, static_argnums=(), static_argnames=()) -> None:
         self.f = f
         self.static_argnums = static_argnums
         self.static_argnames = static_argnames
         self.records = None
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args, **kwargs) -> np.ndarray:
         f, static_argnums, static_argnames = self.f, self.static_argnums, self.static_argnames
         id_gen = IDGenerator()
         variables = {}
